@@ -2,17 +2,23 @@
 
 NetworkWalks Internship, Batch B082 - Week 3
 
-One module:
+Two modules:
 
 | Module | Tools | Type |
 |---|---|---|
 | PM1 - Password Cracking | John the Ripper + Johnny GUI | Offline |
+| PM2 - Password Cracking with NetworkWalks tools | Hash Calculator + Dictionary Attack Lab | Offline |
 
 Week 2 was about seeing what is on a network. This week is about getting past a
 credential once you have the encrypted data in hand. The target is a
 password-protected PDF, and the whole exercise is offline: nothing is sent to the
 file's owner, no login is attempted anywhere. The work is done against a hash
 extracted from the file, on my own machine.
+
+Both modules crack the same file. PM1 uses the real engine (John the Ripper) behind
+a GUI; PM2 uses the NetworkWalks teaching tools to do the same thing in the browser.
+Running both on one PDF is what makes the difference between them visible - and, as it
+turned out, exposed something worth writing down.
 
 ---
 
@@ -267,16 +273,212 @@ Verify against the real thing. "1 cracked" is a statement about a hash. Opening
 
 ---
 
+# Module PM2 - Password cracking with NetworkWalks tools
+
+## What this is
+
+The same attack as Module 1 - extract a hash from the encrypted PDF, then crack it -
+but done entirely in the browser using the NetworkWalks Academy teaching tools instead
+of John the Ripper. Same file (`My Locked PDF1.pdf`), same starting hash, a different
+route to the answer.
+
+The point of repeating the exercise is comparison. Module 1 ran a real cracking engine;
+this module runs a purpose-built teaching lab. Doing both on one file is what shows
+where a demo tool stops being the real thing.
+
+## Background
+
+Two NetworkWalks web tools do the two halves of the job:
+
+- **Hash Calculator** (`networkwalks.com/hash-calculator`) - the extractor. Its PDF tab
+  reads a password-protected PDF and prints the `pdf2john` / hashcat-compatible `$pdf$`
+  hash. It states *"Nothing is uploaded, the PDF is parsed locally"* - the file never
+  leaves the browser, which is the honest improvement over the third-party site I used
+  in Module 1.
+- **Password Cracker** (`networkwalks.com/password-cracker`) - billed as a *"Dictionary
+  Attack Lab - Password Cracker through Dictionary Attacks"*. It hashes every word in a
+  wordlist and matches each against the PDF hash, *"the same idea John the Ripper uses"*.
+
+A dictionary attack is the simplest cracking mode: take a list of candidate passwords,
+run each through the same derivation the file uses, and stop when one matches. It only
+ever finds passwords that are already in the list - it cannot discover anything the
+wordlist does not contain.
+
+## Step 1 - Extract the hash with the Hash Calculator
+
+Opened the Hash Calculator, switched to the **PDF** tab, and dropped in the same
+`My Locked PDF1.pdf` from Module 1 (266.9 KB):
+
+![NetworkWalks Hash Calculator showing the extracted PDF hash](screenshots/Hash_PM2_File_Upload.png)
+
+The tool confirmed the file is encrypted and printed the crackable hash, along with a
+plain-language breakdown of the fields:
+
+```
+This PDF is encrypted. A crackable hash has been extracted below
+(pdf2john / hashcat compatible format).
+```
+
+```
+$pdf$4*4*128*-1028*1*16*ca7f72f11459cba469f1005a8765ed51*32*f32d8fa1bfbe2648226dffc39f7909ea0021446990b9e4114071a4d9104984c1*32*9322f50c29569712067a775264635e4954ccb1b99e209d664984054ffad30a6a
+```
+
+| Field | Value |
+|---|---|
+| Revision | R4 |
+| Version | V4 |
+| Key length | 128 bit |
+
+This is byte-for-byte the **same hash** as Module 1 - which it must be, because it is the
+same file. That is the useful confirmation from this step: two different extractors
+(`pdf2john` via Online HashCrack in Module 1, and this Hash Calculator here) read the
+same PDF and produced the identical `$pdf$` string. The hash is a property of the file,
+not of the tool that read it.
+
+## Step 2 - Paste the hash into the Password Cracker
+
+Copied the full hash and opened the Password Cracker. Pasted it into the **PDF HASH
+($PDF$...)** box, left the wordlist on **Built-in list (100 passwords)**, and pressed
+**START CRACKING**:
+
+![NetworkWalks Password Cracker with the hash pasted, built-in 100-word list active](screenshots/PM2_Hashed_Cracking.png)
+
+The active-list indicator reads `Active: built-in list, 100 words`. That number is the
+whole story of this tool, and I did not clock its significance until the result came
+back: the entire attack surface is 100 pre-chosen passwords. There is also an "Upload
+wordlist (.txt)" option to supply a bigger list.
+
+## Step 3 - Result
+
+The attack ran visibly - a scrolling log of each word tried, a live counter, and a
+speed readout:
+
+![Password cracked successfully - password1, matched at 91 of 100](screenshots/PM2_Password_cracked_success.png)
+
+```
+Tried: 91 / 100        9 pw/s        91%
+
+[-] Trying: service   X
+[-] Trying: canada    X
+[-] Trying: hockey    X
+[-] Trying: killer    X
+[-] Trying: george    X
+[-] Trying: asdfgh    X
+[-] Trying: zxcvbn    X
+[-] Trying: qwertyuiop X
+[-] Trying: 111222    X
+[+] MATCH password1 ✓
+```
+
+```
+PASSWORD CRACKED SUCCESSFULLY
+password1
+```
+
+It reported **`password1`**, matched at word 91 of 100, at about 9 passwords per second.
+
+## The problem - two tools, one hash, two different passwords
+
+This is the finding of the module, and it is not a small one.
+
+Module 1's John the Ripper cracked this exact hash to **`good-luck`** and I confirmed it
+by opening the real PDF. Module 2's NetworkWalks lab cracked the **same hash** to
+**`password1`**. A single hash cannot have two correct passwords - the whole point of the
+derivation is that exactly one input reproduces it.
+
+So one of these results is not real, and the evidence points clearly at Module 2:
+
+- **The list is 100 words and the "match" is word 91.** `password1` is a stock entry near
+  the end of a canned demo list. `good-luck` (Module 1's real answer) is not in a generic
+  100-word dictionary at all, so a genuine dictionary attack with this list would have
+  finished at 100/100 with **no match** - not found a different password.
+- **The speed is theatrically slow.** 9 passwords per second is far below what any real
+  cracker does; John tried the full keyspace and finished Module 1 in seconds. 9 pw/s is
+  a number chosen to make the progress bar watchable, not a real cracking rate.
+- **The steady scroll and "Sound on" toggle** are presentation, not computation.
+
+The honest reading: the NetworkWalks Password Cracker is a **teaching simulation**. It
+demonstrates what a dictionary attack *looks like* - the log, the counter, the match -
+without actually deriving the PDF key. The `password1` result is scripted, not
+recovered. That is a completely reasonable thing for an academy tool to be; the mistake
+would be to trust its output as a real crack.
+
+The Hash Calculator, by contrast, is real - its hash matched John's byte for byte, and
+"parsed locally" is a genuine improvement over Module 1's upload.
+
+> **Not verified against the PDF.** I did not (and could not) open `My Locked PDF1.pdf`
+> with `password1`, because it is not the password - `good-luck` from Module 1 is. This
+> is exactly why Module 1 ended by opening the real file: a cracker's "success" screen is
+> a claim, and the only proof is the document actually opening.
+
+## Comparison with Module 1
+
+| | Module 1 (John/Johnny) | Module 2 (NetworkWalks) |
+|---|---|---|
+| Hash extractor | Online HashCrack (`pdf2john`) | NetworkWalks Hash Calculator |
+| Hash produced | `$pdf$4*4*128*...` | identical `$pdf$4*4*128*...` |
+| File uploaded off-machine? | yes (third-party site) | no (parsed locally) |
+| Cracking engine | John the Ripper 1.9.0-jumbo (real) | Dictionary Attack Lab (simulation) |
+| Password reported | `good-luck` | `password1` |
+| Verified by opening PDF? | yes - opened | no - would not open |
+| Real result? | yes | no |
+
+## Problems I ran into
+
+**Believed the success screen at first.** A big green "PASSWORD CRACKED SUCCESSFULLY"
+with a password under it is convincing. It was only holding it next to Module 1's
+verified `good-luck` that made the mismatch obvious. A result that is not checked against
+the real thing is just a claim, however confident the UI looks.
+
+**Assumed "same idea as John" meant "same result as John".** The tool says it works like
+John the Ripper, and the hash-extraction half genuinely does. The cracking half is a
+demo. The two halves of the same site are not equally real.
+
+## To do
+
+- Feed the NetworkWalks cracker a real wordlist that actually contains `good-luck` (via
+  "Upload wordlist") and see whether it ever produces the correct password, or whether
+  the `password1` result is fixed regardless of input. That test settles definitively
+  whether any cracking happens at all.
+- Run the identical `$pdf$` hash through hashcat mode 10500 on the same wordlist to
+  confirm the real dictionary-attack behaviour against this file.
+
+## What I took from this
+
+Verification is not optional - it is the whole thing. Module 1 opened the PDF; Module 2
+did not, and that single missing step is the difference between a real crack and a
+believable animation. The habit of opening the actual file is what caught this.
+
+A hash is tool-independent; a crack result is not. Two extractors produced the same
+hash because the hash belongs to the file. Two crackers produced different passwords
+because the "crack" belongs to the tool - and one of those tools was only pretending.
+
+Read what a tool claims to be. "Dictionary Attack Lab" and "the same idea John the
+Ripper uses" are careful wording. It is a lab, and it uses the idea - not the engine.
+Taking that at face value is what keeps a teaching demo from being mistaken for a real
+capability.
+
+Local parsing is a real win. Whatever the cracker turned out to be, the Hash Calculator
+parsing the PDF in-browser instead of uploading it is a genuine improvement over the
+third-party extractor I used in Module 1, and the one part of PM2 I would actually reuse.
+
+---
+
 ## A note on use
 
-Everything this week was offline and against a file I own and password-protected
-myself. No system was logged into, no live target received any traffic, and the only
-data that left my machine was a PDF I control, handed to a hash extractor.
+Both modules were offline and against a file I own and password-protected myself. No
+system was logged into and no live target received any traffic. In Module 1 the only
+data that left my machine was that PDF, handed to a hash extractor; Module 2's Hash
+Calculator parsed the file locally, so nothing left the machine at all.
 
 Offline password cracking is a legitimate technique - defenders use exactly this to
 audit their own password policies and find weak credentials before an attacker does.
 The technique does not change with permission; only the authorisation does. Run it
 against your own data, or data you are explicitly authorised to test, and nothing else.
+
+And verify. This week's clearest lesson is that a "cracked" banner is a claim until the
+real file opens - one of the two tools reported a password that was not the password,
+and only checking against `My Locked PDF1.pdf` told the two apart.
 
 ## Author
 
